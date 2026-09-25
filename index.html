@@ -1376,17 +1376,39 @@
   // FFmpeg compiled to WebAssembly) runs an actual FFmpeg build client-side.
   // It ships its own open-source ProRes encoder (prores_ks, not Apple's), so
   // this produces a real alpha-channel .mov, not a renamed/reinterpreted file.
+  // Self-hosted (not loaded from a third-party CDN at runtime) — see
+  // vendor/NOTICE.md — so there's no external supply-chain dependency for
+  // code that runs in your browser.
   var ffmpegInstance = null;
-  var FFMPEG_VERSION = '0.12.15';
-  var FFMPEG_CORE_VERSION = '0.12.10';
+  function fetchAsBlobURL(url, mimeType, onProgress){
+    return fetch(url).then(function(resp){
+      var total = parseInt(resp.headers.get('Content-Length') || '0', 10);
+      if(!resp.body || !resp.body.getReader){
+        return resp.blob().then(function(b){ return URL.createObjectURL(new Blob([b], {type: mimeType})); });
+      }
+      var reader = resp.body.getReader();
+      var chunks = [], received = 0;
+      function pump(){
+        return reader.read().then(function(res){
+          if(res.done){
+            return URL.createObjectURL(new Blob(chunks, {type: mimeType}));
+          }
+          chunks.push(res.value);
+          received += res.value.length;
+          if(onProgress) onProgress({received: received, total: total});
+          return pump();
+        });
+      }
+      return pump();
+    });
+  }
   async function loadFFmpegOnce(onProgress){
     if(ffmpegInstance) return ffmpegInstance;
-    var ffmpegMod = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@' + FFMPEG_VERSION + '/dist/esm/index.js');
-    var utilMod = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/dist/esm/index.js');
+    var ffmpegMod = await import('./vendor/ffmpeg/index.js');
     var ffmpeg = new ffmpegMod.FFmpeg();
-    var baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@' + FFMPEG_CORE_VERSION + '/dist/umd';
-    var coreURL = await utilMod.toBlobURL(baseURL + '/ffmpeg-core.js', 'text/javascript', true, onProgress);
-    var wasmURL = await utilMod.toBlobURL(baseURL + '/ffmpeg-core.wasm', 'application/wasm', true, onProgress);
+    var baseURL = './vendor/ffmpeg-core';
+    var coreURL = await fetchAsBlobURL(baseURL + '/ffmpeg-core.js', 'text/javascript', onProgress);
+    var wasmURL = await fetchAsBlobURL(baseURL + '/ffmpeg-core.wasm', 'application/wasm', onProgress);
     await ffmpeg.load({ coreURL: coreURL, wasmURL: wasmURL });
     ffmpegInstance = ffmpeg;
     return ffmpeg;
