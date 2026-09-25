@@ -405,6 +405,7 @@
         <button class="btn ghost" id="exportVideoBtn" style="margin-top:0">Save Video</button>
       </div>
       <button class="btn ghost" id="exportSeqBtn" style="margin-top:8px">Save PNG Sequence (true alpha, for overlay)</button>
+      <button class="btn ghost" id="exportMovBtn" style="margin-top:8px">Save MOV (ProRes 4444, true alpha)</button>
       <div class="rec-status" id="recStatus"><span class="rec-dot"></span><span id="recStatusText">.webm, records the full reveal + a short hold</span></div>
       <video id="videoPreview" controls playsinline style="display:none; width:100%; border-radius:3px; margin-top:12px; background:#000;"></video>
       <div class="subLabel" id="previewHint" style="display:none; text-transform:none; letter-spacing:0; line-height:1.5; margin-top:8px;">Downloaded automatically. Preview below to check it before sharing.</div>
@@ -488,6 +489,7 @@
   var exportPngBtn = document.getElementById('exportPngBtn');
   var exportVideoBtn = document.getElementById('exportVideoBtn');
   var exportSeqBtn = document.getElementById('exportSeqBtn');
+  var exportMovBtn = document.getElementById('exportMovBtn');
   var recStatus = document.getElementById('recStatus');
   var recStatusText = document.getElementById('recStatusText');
   var videoPreview = document.getElementById('videoPreview');
@@ -1318,38 +1320,120 @@
     return new Promise(function(resolve){ canvas.toBlob(resolve, 'image/png'); });
   }
   var exporting = false;
-  exportSeqBtn.addEventListener('click', async function(){
-    if(exporting) return;
+  var EXPORT_FPS = 24;
+  // Renders the full reveal deterministically (not tied to real time) and
+  // calls onFrame(index, frameCount, pngBytes) for each one — shared by the
+  // PNG sequence and MOV exports so the frame timing/count logic lives once.
+  async function renderFrames(onFrame){
+    layoutAndAnimate(true);
+    var holdMs = 1200;
+    var totalMs = Math.max(1500, Math.min(15000, estimateRevealMs() + holdMs));
+    var frameCount = Math.ceil(totalMs / 1000 * EXPORT_FPS);
+    var files = [];
+    for(var i = 0; i < frameCount; i++){
+      var frameNow = state.startTime + (i * 1000 / EXPORT_FPS);
+      drawFrame(frameNow);
+      var blob = await canvasFrameBlob();
+      var buf = new Uint8Array(await blob.arrayBuffer());
+      var file = { name: 'frame_' + String(i+1).padStart(4, '0') + '.png', data: buf };
+      files.push(file);
+      if(onFrame) onFrame(i+1, frameCount, file);
+    }
+    return files;
+  }
+  function beginExport(){
     exporting = true;
     exportSeqBtn.disabled = true;
     exportPngBtn.disabled = true;
     exportVideoBtn.disabled = true;
+    exportMovBtn.disabled = true;
     if(rafId) cancelAnimationFrame(rafId);
-
-    layoutAndAnimate(true);
-    var fps = 24;
-    var holdMs = 1200;
-    var totalMs = Math.max(1500, Math.min(15000, estimateRevealMs() + holdMs));
-    var frameCount = Math.ceil(totalMs / 1000 * fps);
-    var files = [];
-    for(var i = 0; i < frameCount; i++){
-      var frameNow = state.startTime + (i * 1000 / fps);
-      drawFrame(frameNow);
-      var blob = await canvasFrameBlob();
-      var buf = new Uint8Array(await blob.arrayBuffer());
-      files.push({ name: 'frame_' + String(i+1).padStart(4, '0') + '.png', data: buf });
-      recStatusText.textContent = 'rendering frame ' + (i+1) + '/' + frameCount + '…';
-    }
-    var zipBlob = buildZip(files);
-    downloadBlob(zipBlob, 'dot-matrix-frames.zip');
-    recStatusText.textContent = 'downloaded ' + frameCount + ' frames as dot-matrix-frames.zip';
-
+  }
+  function endExport(){
     layoutAndAnimate(true);
     startLoop();
     exporting = false;
     exportSeqBtn.disabled = false;
     exportPngBtn.disabled = false;
     exportVideoBtn.disabled = false;
+    exportMovBtn.disabled = false;
+  }
+
+  exportSeqBtn.addEventListener('click', async function(){
+    if(exporting) return;
+    beginExport();
+    var files = await renderFrames(function(done, total){
+      recStatusText.textContent = 'rendering frame ' + done + '/' + total + '…';
+    });
+    var zipBlob = buildZip(files);
+    downloadBlob(zipBlob, 'dot-matrix-frames.zip');
+    recStatusText.textContent = 'downloaded ' + files.length + ' frames as dot-matrix-frames.zip';
+    endExport();
+  });
+
+  // ---------- export: MOV (ProRes 4444, true alpha) via ffmpeg.wasm ----------
+  // No browser can encode QuickTime/ProRes natively — ffmpeg.wasm (open-source
+  // FFmpeg compiled to WebAssembly) runs an actual FFmpeg build client-side.
+  // It ships its own open-source ProRes encoder (prores_ks, not Apple's), so
+  // this produces a real alpha-channel .mov, not a renamed/reinterpreted file.
+  var ffmpegInstance = null;
+  var FFMPEG_VERSION = '0.12.15';
+  var FFMPEG_CORE_VERSION = '0.12.10';
+  async function loadFFmpegOnce(onProgress){
+    if(ffmpegInstance) return ffmpegInstance;
+    var ffmpegMod = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@' + FFMPEG_VERSION + '/dist/esm/index.js');
+    var utilMod = await import('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/dist/esm/index.js');
+    var ffmpeg = new ffmpegMod.FFmpeg();
+    var baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@' + FFMPEG_CORE_VERSION + '/dist/umd';
+    var coreURL = await utilMod.toBlobURL(baseURL + '/ffmpeg-core.js', 'text/javascript', true, onProgress);
+    var wasmURL = await utilMod.toBlobURL(baseURL + '/ffmpeg-core.wasm', 'application/wasm', true, onProgress);
+    await ffmpeg.load({ coreURL: coreURL, wasmURL: wasmURL });
+    ffmpegInstance = ffmpeg;
+    return ffmpeg;
+  }
+  exportMovBtn.addEventListener('click', async function(){
+    if(exporting) return;
+    beginExport();
+    try{
+      recStatusText.textContent = 'loading encoder (~30MB, one-time)…';
+      var ffmpeg = await loadFFmpegOnce(function(ev){
+        if(ev.total){
+          recStatusText.textContent = 'loading encoder… ' + Math.round(ev.received/ev.total*100) + '%';
+        }
+      });
+
+      var files = await renderFrames(function(done, total){
+        recStatusText.textContent = 'rendering frame ' + done + '/' + total + '…';
+      });
+      for(var i = 0; i < files.length; i++){
+        await ffmpeg.writeFile(files[i].name, files[i].data);
+      }
+
+      recStatusText.textContent = 'encoding ProRes 4444…';
+      var args = ['-framerate', String(EXPORT_FPS), '-i', 'frame_%04d.png',
+        '-c:v', 'prores_ks', '-profile:v', '4444', '-pix_fmt', 'yuva444p10le', 'output.mov'];
+      var code = await ffmpeg.exec(args);
+      if(code !== 0){
+        // prores_ks unavailable in this core build — qtrle is an older but
+        // universally-supported lossless alpha codec, built into every ffmpeg.
+        recStatusText.textContent = 'ProRes unavailable — encoding QuickTime Animation…';
+        args = ['-framerate', String(EXPORT_FPS), '-i', 'frame_%04d.png',
+          '-c:v', 'qtrle', '-pix_fmt', 'argb', 'output.mov'];
+        code = await ffmpeg.exec(args);
+      }
+      if(code !== 0) throw new Error('ffmpeg exec failed');
+
+      var outData = await ffmpeg.readFile('output.mov');
+      var movBlob = new Blob([outData.buffer], {type: 'video/quicktime'});
+      downloadBlob(movBlob, 'dot-matrix.mov');
+      recStatusText.textContent = 'downloaded dot-matrix.mov (' + files.length + ' frames, true alpha)';
+
+      for(var j = 0; j < files.length; j++){ try{ await ffmpeg.deleteFile(files[j].name); }catch(e){} }
+      try{ await ffmpeg.deleteFile('output.mov'); }catch(e){}
+    } catch(err){
+      recStatusText.textContent = 'MOV export failed — try Save PNG Sequence instead';
+    }
+    endExport();
   });
 
   replayBtn.addEventListener('click', function(){ layoutAndAnimate(true); });
