@@ -1251,6 +1251,12 @@
   function handleFile(file){
     if(!file || file.type.indexOf('image') !== 0) return;
     filenameEl.textContent = file.name;
+    // A previously-recorded preview no longer reflects the new logo — hide it
+    // rather than leave a stale clip sitting there looking current.
+    videoPreview.style.display = 'none';
+    videoPreview.removeAttribute('src');
+    previewHint.style.display = 'none';
+    recStatusText.textContent = '.webm, records the full reveal + a short hold';
     var reader = new FileReader();
     reader.onload = function(e){
       var img = new Image();
