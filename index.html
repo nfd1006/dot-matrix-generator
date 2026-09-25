@@ -385,13 +385,17 @@
         <label for="bgColorInput">Background Color</label>
         <input type="color" id="bgColorInput" value="#141110" aria-label="Background color" />
       </div>
+      <div class="row" id="bgChromaRow" style="display:none">
+        <label for="bgChromaBtn">Overlay preset</label>
+        <button class="swatch" id="bgChromaBtn" style="background:#00FF00" aria-label="Chroma-key green" title="Chroma-key green — key this out in your video editor"></button>
+      </div>
       <div class="dropzone" id="bgDropzone" tabindex="0" role="button" aria-label="Upload a background image" style="display:none">
         <span class="glyph">⬦</span>
         <div class="t1">Drop image, or click</div>
         <div class="filename" id="bgFilename"></div>
       </div>
       <input type="file" id="bgFileInput" accept="image/*" style="display:none" />
-      <div class="subLabel" style="margin:10px 0 0; text-transform:none; letter-spacing:0; line-height:1.5;">Transparent PNG always works. Transparent video depends on your player supporting alpha WebM — if it shows black instead of see-through, use Color or Image here instead.</div>
+      <div class="subLabel" style="margin:10px 0 0; text-transform:none; letter-spacing:0; line-height:1.5;">Transparent PNG always works. Video can't actually carry transparency — browsers flatten it to opaque black when recording, regardless of player. For a video overlay, use Save PNG Sequence (true alpha, every frame) or set Color to chroma-key green and key it out in your editor.</div>
     </details>
 
     <details>
@@ -400,6 +404,7 @@
         <button class="btn ghost" id="exportPngBtn" style="margin-top:0">Save PNG</button>
         <button class="btn ghost" id="exportVideoBtn" style="margin-top:0">Save Video</button>
       </div>
+      <button class="btn ghost" id="exportSeqBtn" style="margin-top:8px">Save PNG Sequence (true alpha, for overlay)</button>
       <div class="rec-status" id="recStatus"><span class="rec-dot"></span><span id="recStatusText">.webm, records the full reveal + a short hold</span></div>
       <video id="videoPreview" controls playsinline style="display:none; width:100%; border-radius:3px; margin-top:12px; background:#000;"></video>
       <div class="subLabel" id="previewHint" style="display:none; text-transform:none; letter-spacing:0; line-height:1.5; margin-top:8px;">Downloaded automatically. Preview below to check it before sharing.</div>
@@ -482,6 +487,7 @@
   var hexSwatch = document.getElementById('hexSwatch');
   var exportPngBtn = document.getElementById('exportPngBtn');
   var exportVideoBtn = document.getElementById('exportVideoBtn');
+  var exportSeqBtn = document.getElementById('exportSeqBtn');
   var recStatus = document.getElementById('recStatus');
   var recStatusText = document.getElementById('recStatusText');
   var videoPreview = document.getElementById('videoPreview');
@@ -490,6 +496,8 @@
   var bgModeSelect = document.getElementById('bgMode');
   var bgColorRow = document.getElementById('bgColorRow');
   var bgColorInput = document.getElementById('bgColorInput');
+  var bgChromaRow = document.getElementById('bgChromaRow');
+  var bgChromaBtn = document.getElementById('bgChromaBtn');
   var bgDropzone = document.getElementById('bgDropzone');
   var bgFileInput = document.getElementById('bgFileInput');
   var bgFilenameEl = document.getElementById('bgFilename');
@@ -1116,8 +1124,13 @@
   // ---------- canvas background: transparent / solid color / image ----------
   function updateBgModeUI(){
     bgColorRow.style.display = state.canvasBgMode === 'color' ? 'flex' : 'none';
+    bgChromaRow.style.display = state.canvasBgMode === 'color' ? 'flex' : 'none';
     bgDropzone.style.display = state.canvasBgMode === 'image' ? 'block' : 'none';
   }
+  bgChromaBtn.addEventListener('click', function(){
+    bgColorInput.value = '#00FF00';
+    state.canvasBgColor = '#00FF00';
+  });
   bgModeSelect.addEventListener('change', function(){
     state.canvasBgMode = bgModeSelect.value;
     updateBgModeUI();
@@ -1243,6 +1256,100 @@
     recStatusText.textContent = 'recording ' + (recordMs/1000).toFixed(1) + 's…';
     recorder.start();
     setTimeout(function(){ if(recorder.state !== 'inactive') recorder.stop(); }, recordMs);
+  });
+
+  // ---------- export: PNG sequence (true per-pixel alpha, for use as a video overlay) ----------
+  // Video recording can't actually carry transparency in the browser (see the
+  // Background panel note) — a PNG sequence is the reliable alternative: every
+  // frame keeps real alpha, and any video editor can import a numbered image
+  // sequence as a transparent clip. Frames are rendered deterministically
+  // (not tied to real time), so the sequence is reproducible regardless of
+  // how fast this machine can actually render.
+  var CRC_TABLE = (function(){
+    var table = [];
+    for(var n = 0; n < 256; n++){
+      var c = n;
+      for(var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      table[n] = c >>> 0;
+    }
+    return table;
+  })();
+  function crc32(bytes){
+    var crc = 0xFFFFFFFF;
+    for(var i = 0; i < bytes.length; i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+  function u16(v){ return [v & 0xFF, (v >>> 8) & 0xFF]; }
+  function u32(v){ return [v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF]; }
+  // Builds a valid ZIP (method 0 = store, no compression — keeps this dependency-free
+  // and the PNGs are already compressed) from [{name, data: Uint8Array}].
+  function buildZip(files){
+    var localParts = [], centralParts = [], offset = 0;
+    files.forEach(function(f){
+      var nameBytes = new TextEncoder().encode(f.name);
+      var crc = crc32(f.data);
+      var size = f.data.length;
+      var localHeader = new Uint8Array([
+        0x50,0x4B,0x03,0x04, 20,0, 0,0, 0,0, 0,0,0,0,
+        ...u32(crc), ...u32(size), ...u32(size),
+        ...u16(nameBytes.length), 0,0
+      ]);
+      localParts.push(localHeader, nameBytes, f.data);
+      var centralHeader = new Uint8Array([
+        0x50,0x4B,0x01,0x02, 20,0, 20,0, 0,0, 0,0, 0,0,0,0,
+        ...u32(crc), ...u32(size), ...u32(size),
+        ...u16(nameBytes.length), 0,0, 0,0, 0,0, 0,0,
+        ...u32(0), ...u32(offset)
+      ]);
+      centralParts.push(centralHeader, nameBytes);
+      offset += localHeader.length + nameBytes.length + size;
+    });
+    var centralStart = offset;
+    var centralSize = centralParts.reduce(function(s,p){ return s + p.length; }, 0);
+    var end = new Uint8Array([
+      0x50,0x4B,0x05,0x06, 0,0, 0,0,
+      ...u16(files.length), ...u16(files.length),
+      ...u32(centralSize), ...u32(centralStart),
+      0,0
+    ]);
+    return new Blob([].concat(localParts, centralParts, [end]), {type: 'application/zip'});
+  }
+  function canvasFrameBlob(){
+    return new Promise(function(resolve){ canvas.toBlob(resolve, 'image/png'); });
+  }
+  var exporting = false;
+  exportSeqBtn.addEventListener('click', async function(){
+    if(exporting) return;
+    exporting = true;
+    exportSeqBtn.disabled = true;
+    exportPngBtn.disabled = true;
+    exportVideoBtn.disabled = true;
+    if(rafId) cancelAnimationFrame(rafId);
+
+    layoutAndAnimate(true);
+    var fps = 24;
+    var holdMs = 1200;
+    var totalMs = Math.max(1500, Math.min(15000, estimateRevealMs() + holdMs));
+    var frameCount = Math.ceil(totalMs / 1000 * fps);
+    var files = [];
+    for(var i = 0; i < frameCount; i++){
+      var frameNow = state.startTime + (i * 1000 / fps);
+      drawFrame(frameNow);
+      var blob = await canvasFrameBlob();
+      var buf = new Uint8Array(await blob.arrayBuffer());
+      files.push({ name: 'frame_' + String(i+1).padStart(4, '0') + '.png', data: buf });
+      recStatusText.textContent = 'rendering frame ' + (i+1) + '/' + frameCount + '…';
+    }
+    var zipBlob = buildZip(files);
+    downloadBlob(zipBlob, 'dot-matrix-frames.zip');
+    recStatusText.textContent = 'downloaded ' + frameCount + ' frames as dot-matrix-frames.zip';
+
+    layoutAndAnimate(true);
+    startLoop();
+    exporting = false;
+    exportSeqBtn.disabled = false;
+    exportPngBtn.disabled = false;
+    exportVideoBtn.disabled = false;
   });
 
   replayBtn.addEventListener('click', function(){ layoutAndAnimate(true); });
