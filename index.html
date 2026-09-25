@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="Upload a logo and watch it assemble from scattered dots into your silhouette, entirely in-browser." />
+<title>Dot Matrix — Logo Assembler</title>
+<style>
+  :root{
+    --paper: #EDE7DC;
+    --paper-2: #E3DBCB;
+    --ink: #211C19;
+    --ink-soft: #5B534A;
+    --ink-faint: #8B8172;
+    --blue: #1150A3;
+    --flame: #E8471F;
+    --line: rgba(33,28,25,0.16);
+    --line-strong: rgba(33,28,25,0.34);
+    --accent: var(--flame);
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper: #161310; --paper-2: #1F1B16; --ink: #EDE6D8; --ink-soft: #B7AC9B; --ink-faint: #766D5F;
+      --blue: #6FA4FF; --flame: #FF7C4D;
+      --line: rgba(237,230,216,0.14); --line-strong: rgba(237,230,216,0.30);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper: #161310; --paper-2: #1F1B16; --ink: #EDE6D8; --ink-soft: #B7AC9B; --ink-faint: #766D5F;
+    --blue: #6FA4FF; --flame: #FF7C4D;
+    --line: rgba(237,230,216,0.14); --line-strong: rgba(237,230,216,0.30);
+  }
+  :root[data-theme="light"]{
+    --paper: #EDE7DC; --paper-2: #E3DBCB; --ink: #211C19; --ink-soft: #5B534A; --ink-faint: #8B8172;
+    --blue: #1150A3; --flame: #E8471F;
+    --line: rgba(33,28,25,0.16); --line-strong: rgba(33,28,25,0.34);
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper); color:var(--ink); font-family:var(--sans);
+    min-height:100vh; display:flex; flex-direction:column;
+  }
+  ::selection{ background:var(--accent); color:var(--paper); }
+  a{color:inherit;}
+  button, input[type="range"], input[type="color"], select{ font-family:inherit; }
+  button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible{
+    outline:2px solid var(--accent); outline-offset:2px;
+  }
+
+  header{
+    display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+    padding:22px 28px 18px; border-bottom:1px solid var(--line); flex-wrap:wrap;
+  }
+  .brand{ display:flex; align-items:baseline; gap:12px; }
+  .brand .mark{
+    font-family:var(--mono); font-size:13px; letter-spacing:0.14em; color:var(--accent);
+    border:1px solid var(--line-strong); padding:3px 7px; border-radius:2px;
+  }
+  h1{ margin:0; font-size:22px; font-weight:800; letter-spacing:-0.01em; }
+  header p{ margin:0; font-family:var(--mono); font-size:12px; color:var(--ink-faint); letter-spacing:0.02em; }
+
+  main{ flex:1; display:grid; grid-template-columns:310px 1fr; gap:0; }
+  @media (max-width:820px){
+    main{ grid-template-columns:1fr; }
+    aside{ border-right:none !important; border-bottom:1px solid var(--line); }
+  }
+
+  aside{
+    border-right:1px solid var(--line);
+    padding:20px 22px 28px;
+    background:
+      radial-gradient(circle, var(--line-strong) 1px, transparent 1.4px) 0 0/ 10px 10px,
+      var(--paper);
+    max-height:calc(100vh - 90px);
+    overflow-y:auto;
+  }
+
+  details{ border-bottom:1px solid var(--line); padding:14px 0; }
+  details:first-of-type{ padding-top:0; }
+  details:last-of-type{ border-bottom:none; }
+  summary{
+    list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between;
+  }
+  summary::-webkit-details-marker{ display:none; }
+  summary .title{ font-size:14px; font-weight:700; letter-spacing:-0.005em; }
+  summary .chev{ font-size:10px; color:var(--ink-faint); transition:transform .15s ease; }
+  details[open] summary .chev{ transform:rotate(180deg); }
+  details[open] summary{ margin-bottom:14px; }
+
+  .subLabel{
+    font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:0.1em;
+    color:var(--ink-faint); margin:0 0 7px;
+  }
+
+  .dropzone{
+    border:1.5px dashed var(--line-strong); border-radius:4px; padding:20px 14px; text-align:center;
+    cursor:pointer; transition:border-color .15s ease, background .15s ease; background:var(--paper-2);
+  }
+  .dropzone.drag{ border-color:var(--accent); background:color-mix(in srgb, var(--accent) 10%, var(--paper-2)); }
+  .dropzone .glyph{ font-size:20px; display:block; margin-bottom:6px; color:var(--ink-soft); }
+  .dropzone .t1{ font-size:13px; font-weight:600; }
+  .dropzone .t2{ font-family:var(--mono); font-size:11px; color:var(--ink-faint); margin-top:4px; }
+  #fileInput{ display:none; }
+  .filename{ margin-top:8px; font-family:var(--mono); font-size:11px; color:var(--ink-soft); word-break:break-all; }
+
+  .row{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }
+  .row:last-child{ margin-bottom:0; }
+  .row label{ font-size:12px; color:var(--ink-soft); flex-shrink:0; }
+  .row .val{ font-family:var(--mono); font-size:11px; color:var(--ink-faint); min-width:36px; text-align:right; }
+
+  input[type="range"]{
+    flex:1; -webkit-appearance:none; appearance:none; height:2px;
+    background:var(--line-strong); border-radius:2px; outline-offset:6px;
+  }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:13px; height:13px; border-radius:50%; background:var(--accent);
+    cursor:pointer; border:2px solid var(--paper); box-shadow:0 0 0 1px var(--line-strong);
+  }
+  input[type="range"]::-moz-range-thumb{
+    width:13px; height:13px; border-radius:50%; background:var(--accent);
+    cursor:pointer; border:2px solid var(--paper); box-shadow:0 0 0 1px var(--line-strong);
+  }
+
+  select{
+    background:var(--paper-2); color:var(--ink); border:1px solid var(--line-strong);
+    border-radius:2px; padding:5px 6px; font-size:11px; cursor:pointer;
+  }
+
+  .switch-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .switch-row:last-child{ margin-bottom:0; }
+  .switch-row label{ font-size:12px; color:var(--ink-soft); }
+  .switch{
+    position:relative; width:34px; height:19px; border:1px solid var(--line-strong); border-radius:10px;
+    background:var(--paper-2); cursor:pointer; flex-shrink:0;
+  }
+  .switch .knob{
+    position:absolute; top:2px; left:2px; width:13px; height:13px; border-radius:50%;
+    background:var(--ink-faint); transition:transform .15s ease, background .15s ease;
+  }
+  .switch.on{ border-color:var(--accent); }
+  .switch.on .knob{ transform:translateX(15px); background:var(--accent); }
+
+  .swatches{ display:flex; align-items:center; gap:7px; margin-bottom:14px; flex-wrap:wrap; }
+  .swatch{ width:22px; height:22px; border-radius:50%; border:1px solid var(--line-strong); cursor:pointer; padding:0; }
+  .swatch.active{ box-shadow:0 0 0 2px var(--paper), 0 0 0 3.5px var(--accent); }
+  input[type="color"]{
+    width:22px; height:22px; border:1px solid var(--line-strong); border-radius:50%;
+    padding:0; background:none; cursor:pointer; overflow:hidden;
+  }
+  input[type="color"]::-webkit-color-swatch-wrapper{ padding:0; }
+  input[type="color"]::-webkit-color-swatch{ border:none; border-radius:50%; }
+
+  .picker{ margin-bottom:4px; }
+  .sv-square{
+    position:relative; width:100%; height:104px; border-radius:3px; cursor:crosshair;
+    margin-bottom:9px; border:1px solid var(--line-strong); touch-action:none;
+    background-image: linear-gradient(to top, #000, rgba(0,0,0,0)), linear-gradient(to right, #fff, rgba(255,255,255,0));
+    background-color: hsl(var(--h, 16), 100%, 50%);
+  }
+  .sv-thumb{
+    position:absolute; width:11px; height:11px; border-radius:50%; border:2px solid #fff;
+    box-shadow:0 0 0 1px rgba(0,0,0,.55); transform:translate(-50%,-50%); pointer-events:none;
+  }
+  .hue-strip{
+    position:relative; width:100%; height:11px; border-radius:3px; margin-bottom:10px; cursor:pointer;
+    border:1px solid var(--line-strong); touch-action:none;
+    background:linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  }
+  .hue-thumb{
+    position:absolute; top:50%; width:11px; height:11px; border-radius:50%; border:2px solid #fff;
+    box-shadow:0 0 0 1px rgba(0,0,0,.55); transform:translate(-50%,-50%); pointer-events:none;
+  }
+  .hex-row{ display:flex; align-items:center; gap:8px; }
+  .hex-swatch{ width:22px; height:22px; border-radius:5px; border:1px solid var(--line-strong); flex-shrink:0; }
+  #hexInput{
+    flex:1; min-width:0; background:var(--paper-2); border:1px solid var(--line-strong); color:var(--ink);
+    font-family:var(--mono); font-size:12px; padding:6px 8px; border-radius:2px; text-transform:uppercase;
+  }
+
+  .btn{
+    width:100%; font-family:var(--mono); font-size:12px; letter-spacing:0.06em; text-transform:uppercase;
+    padding:11px 12px; border:1px solid var(--ink); border-radius:2px; background:var(--ink); color:var(--paper);
+    cursor:pointer; transition:opacity .12s ease; margin-top:18px;
+  }
+  .btn:hover{ opacity:0.82; }
+  .btn:active{ opacity:0.66; }
+  .btn:disabled{ opacity:0.4; cursor:not-allowed; }
+  .btn.ghost{ background:transparent; color:var(--ink); border-color:var(--line-strong); margin-top:10px; }
+  .btn-row{ display:flex; gap:8px; }
+  .btn-row .btn{ margin-top:0; }
+  .rec-status{
+    display:flex; align-items:center; gap:7px; font-family:var(--mono); font-size:11px;
+    color:var(--ink-faint); margin-top:10px; min-height:14px;
+  }
+  .rec-dot{ width:7px; height:7px; border-radius:50%; background:var(--flame); flex-shrink:0; opacity:0; }
+  .rec-status.active .rec-dot{ opacity:1; animation:recPulse 1s ease-in-out infinite; }
+  @keyframes recPulse{ 0%,100%{ opacity:1; } 50%{ opacity:0.25; } }
+
+  .stage-wrap{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:30px; gap:16px; min-height:520px;
+  }
+  .stage{
+    position:relative; width:100%; max-width:640px; aspect-ratio:1/1;
+    background:var(--paper-2); border:1px solid var(--line); border-radius:4px;
+    background-image: radial-gradient(circle, var(--line) 1px, transparent 1.3px);
+    background-size: 14px 14px; overflow:hidden;
+  }
+  .stage canvas{ width:100%; height:100%; display:block; }
+  .reg{ position:absolute; width:16px; height:16px; opacity:0.5; pointer-events:none; }
+  .reg svg{ width:100%; height:100%; }
+  .reg.tl{ top:8px; left:8px; } .reg.tr{ top:8px; right:8px; }
+  .reg.bl{ bottom:8px; left:8px; } .reg.br{ bottom:8px; right:8px; }
+
+  .placeholder{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-size:12px; color:var(--ink-faint); text-align:center;
+    padding:0 30px; pointer-events:none; transition:opacity .3s ease; line-height:1.5;
+  }
+
+  .meta{ display:flex; align-items:center; gap:18px; font-family:var(--mono); font-size:11px; color:var(--ink-faint); letter-spacing:0.03em; flex-wrap:wrap; justify-content:center; }
+  .meta b{ color:var(--ink-soft); font-weight:600; }
+  .meta .dot-sep{ width:3px; height:3px; border-radius:50%; background:var(--line-strong); }
+
+  footer{
+    padding:14px 28px 20px; font-family:var(--mono); font-size:11px; color:var(--ink-faint);
+    border-top:1px solid var(--line); text-align:center;
+  }
+</style>
+</head>
+<body>
+
+
+<header>
+  <div class="brand">
+    <span class="mark">●●●</span>
+    <div>
+      <h1>Dot Matrix</h1>
+      <p>logo silhouette → assembling dot animation</p>
+    </div>
+  </div>
+</header>
+
+<main>
+  <aside>
+    <details open>
+      <summary><span class="title">Source</span><span class="chev">▾</span></summary>
+      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Upload a logo image">
+        <span class="glyph">⬥</span>
+        <div class="t1">Drop logo, or click</div>
+        <div class="t2">PNG / JPG / SVG · transparent PNG works best</div>
+        <div class="filename" id="filename"></div>
+      </div>
+      <input type="file" id="fileInput" accept="image/*" />
+    </details>
+
+    <details>
+      <summary><span class="title">Mask</span><span class="chev">▾</span></summary>
+      <div class="row">
+        <label for="threshold">Threshold</label>
+        <input type="range" id="threshold" min="5" max="95" step="1" value="50" />
+        <span class="val" id="thresholdVal">50%</span>
+      </div>
+      <div class="switch-row">
+        <label for="invert">Invert mask</label>
+        <div class="switch" id="invert" role="switch" aria-checked="false" tabindex="0"><div class="knob"></div></div>
+      </div>
+    </details>
+
+    <details open>
+      <summary><span class="title">LED Matrix</span><span class="chev">▾</span></summary>
+      <div class="row">
+        <label for="gridRes">Dot Density</label>
+        <input type="range" id="gridRes" min="40" max="140" step="5" value="100" />
+        <span class="val" id="gridResVal">100×100</span>
+      </div>
+      <div class="row">
+        <label for="fillRatio">Dot Fill Ratio</label>
+        <input type="range" id="fillRatio" min="0.1" max="1" step="0.01" value="0.6" />
+        <span class="val" id="fillRatioVal">0.60</span>
+      </div>
+      <div class="row">
+        <label for="glow">Glow Bloom</label>
+        <input type="range" id="glow" min="0" max="24" step="1" value="8" />
+        <span class="val" id="glowVal">8</span>
+      </div>
+      <div class="row">
+        <label for="baseOpacity">Base Opacity</label>
+        <input type="range" id="baseOpacity" min="0" max="0.3" step="0.01" value="0.06" />
+        <span class="val" id="baseOpacityVal">0.06</span>
+      </div>
+    </details>
+
+    <details open>
+      <summary><span class="title">Color &amp; Wave Effect</span><span class="chev">▾</span></summary>
+      <div class="subLabel">Active Color</div>
+      <div class="swatches" id="swatches">
+        <button class="swatch active" data-color="#E8471F" style="background:#E8471F" aria-label="Flame"></button>
+        <button class="swatch" data-color="#1150A3" style="background:#1150A3" aria-label="Blue"></button>
+        <button class="swatch" data-color-var="--ink" style="background:var(--ink)" aria-label="Ink (adapts to theme)"></button>
+      </div>
+      <div class="picker">
+        <div class="sv-square" id="svSquare"><div class="sv-thumb" id="svThumb"></div></div>
+        <div class="hue-strip" id="hueStrip"><div class="hue-thumb" id="hueThumb"></div></div>
+        <div class="hex-row">
+          <span class="hex-swatch" id="hexSwatch"></span>
+          <input type="text" id="hexInput" value="#E8471F" maxlength="7" spellcheck="false" aria-label="Hex color" />
+        </div>
+      </div>
+      <div class="row">
+        <label for="inactiveColor">Inactive Color</label>
+        <input type="color" id="inactiveColor" value="#8b8172" aria-label="Inactive dot color" />
+      </div>
+      <div class="row">
+        <label for="waveMode">Wave Mode</label>
+        <select id="waveMode">
+          <option value="ripple">Ripple</option>
+          <option value="sweep">Sweep</option>
+          <option value="random">Random</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="waveAngle">Wave Angle</label>
+        <input type="range" id="waveAngle" min="0" max="360" step="5" value="45" />
+        <span class="val" id="waveAngleVal">45°</span>
+      </div>
+      <div class="row">
+        <label for="speed">Wave Speed</label>
+        <input type="range" id="speed" min="1" max="10" step="1" value="6" />
+        <span class="val" id="speedVal">6</span>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="title">Idle Motion</span><span class="chev">▾</span></summary>
+      <div class="switch-row">
+        <label for="idle">Idle breathing</label>
+        <div class="switch on" id="idle" role="switch" aria-checked="true" tabindex="0"><div class="knob"></div></div>
+      </div>
+      <div class="row">
+        <label for="idleSpeed">Breathing Speed</label>
+        <input type="range" id="idleSpeed" min="0.1" max="2" step="0.05" value="0.6" />
+        <span class="val" id="idleSpeedVal">0.60</span>
+      </div>
+      <div class="row">
+        <label for="idleAmp">Breathing Amplitude</label>
+        <input type="range" id="idleAmp" min="0" max="2" step="0.05" value="0.85" />
+        <span class="val" id="idleAmpVal">0.85</span>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="title">Run Cycle</span><span class="chev">▾</span></summary>
+      <div class="switch-row">
+        <label for="runCycle">Animate in place</label>
+        <div class="switch" id="runCycle" role="switch" aria-checked="false" tabindex="0"><div class="knob"></div></div>
+      </div>
+      <div class="row">
+        <label for="runSpeed">Run Speed</label>
+        <input type="range" id="runSpeed" min="0.2" max="3" step="0.05" value="1" />
+        <span class="val" id="runSpeedVal">1.00</span>
+      </div>
+      <div class="row">
+        <label for="runAmp">Run Amplitude</label>
+        <input type="range" id="runAmp" min="0" max="2" step="0.05" value="1" />
+        <span class="val" id="runAmpVal">1.00</span>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="title">Background</span><span class="chev">▾</span></summary>
+      <div class="row">
+        <label for="bgMode">Mode</label>
+        <select id="bgMode">
+          <option value="transparent">Transparent</option>
+          <option value="color">Solid Color</option>
+          <option value="image">Image</option>
+        </select>
+      </div>
+      <div class="row" id="bgColorRow" style="display:none">
+        <label for="bgColorInput">Background Color</label>
+        <input type="color" id="bgColorInput" value="#141110" aria-label="Background color" />
+      </div>
+      <div class="dropzone" id="bgDropzone" tabindex="0" role="button" aria-label="Upload a background image" style="display:none">
+        <span class="glyph">⬦</span>
+        <div class="t1">Drop image, or click</div>
+        <div class="filename" id="bgFilename"></div>
+      </div>
+      <input type="file" id="bgFileInput" accept="image/*" style="display:none" />
+      <div class="subLabel" style="margin:10px 0 0; text-transform:none; letter-spacing:0; line-height:1.5;">Transparent PNG always works. Transparent video depends on your player supporting alpha WebM — if it shows black instead of see-through, use Color or Image here instead.</div>
+    </details>
+
+    <details>
+      <summary><span class="title">Export</span><span class="chev">▾</span></summary>
+      <div class="btn-row">
+        <button class="btn ghost" id="exportPngBtn" style="margin-top:0">Save PNG</button>
+        <button class="btn ghost" id="exportVideoBtn" style="margin-top:0">Save Video</button>
+      </div>
+      <div class="rec-status" id="recStatus"><span class="rec-dot"></span><span id="recStatusText">.webm, records the full reveal + a short hold</span></div>
+      <video id="videoPreview" controls playsinline style="display:none; width:100%; border-radius:3px; margin-top:12px; background:#000;"></video>
+      <div class="subLabel" id="previewHint" style="display:none; text-transform:none; letter-spacing:0; line-height:1.5; margin-top:8px;">Downloaded automatically. Preview below to check it before sharing.</div>
+    </details>
+
+    <button class="btn" id="replayBtn">▸ Replay assembly</button>
+  </aside>
+
+  <div class="stage-wrap">
+    <div class="stage" id="stage">
+      <div class="reg tl"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1"/><line x1="8" y1="0" x2="8" y2="16" stroke="currentColor" stroke-width="1"/><line x1="0" y1="8" x2="16" y2="8" stroke="currentColor" stroke-width="1"/></svg></div>
+      <div class="reg tr"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1"/><line x1="8" y1="0" x2="8" y2="16" stroke="currentColor" stroke-width="1"/><line x1="0" y1="8" x2="16" y2="8" stroke="currentColor" stroke-width="1"/></svg></div>
+      <div class="reg bl"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1"/><line x1="8" y1="0" x2="8" y2="16" stroke="currentColor" stroke-width="1"/><line x1="0" y1="8" x2="16" y2="8" stroke="currentColor" stroke-width="1"/></svg></div>
+      <div class="reg br"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1"/><line x1="8" y1="0" x2="8" y2="16" stroke="currentColor" stroke-width="1"/><line x1="0" y1="8" x2="16" y2="8" stroke="currentColor" stroke-width="1"/></svg></div>
+      <canvas id="canvas"></canvas>
+      <div class="placeholder" id="placeholder">sample mark loaded — drop your own logo to replace it</div>
+    </div>
+    <div class="meta">
+      <span id="dotCount"><b>0</b> dots</span>
+      <span class="dot-sep"></span>
+      <span id="backboneInfo">100×100 backbone</span>
+      <span class="dot-sep"></span>
+      <span id="srcInfo">no file yet</span>
+    </div>
+  </div>
+</main>
+
+<footer>rendered client-side · nothing uploaded leaves your browser</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var stage = document.getElementById('stage');
+  var canvas = document.getElementById('canvas');
+  var ctx = canvas.getContext('2d');
+  var placeholder = document.getElementById('placeholder');
+  var dotCountEl = document.getElementById('dotCount').querySelector('b');
+  var srcInfo = document.getElementById('srcInfo');
+  var filenameEl = document.getElementById('filename');
+
+  var thresholdInput = document.getElementById('threshold');
+  var thresholdVal = document.getElementById('thresholdVal');
+  var invertSwitch = document.getElementById('invert');
+  var gridResInput = document.getElementById('gridRes');
+  var gridResVal = document.getElementById('gridResVal');
+  var fillRatioInput = document.getElementById('fillRatio');
+  var fillRatioVal = document.getElementById('fillRatioVal');
+  var glowInput = document.getElementById('glow');
+  var glowVal = document.getElementById('glowVal');
+  var baseOpacityInput = document.getElementById('baseOpacity');
+  var baseOpacityVal = document.getElementById('baseOpacityVal');
+  var waveModeSelect = document.getElementById('waveMode');
+  var waveAngleInput = document.getElementById('waveAngle');
+  var waveAngleVal = document.getElementById('waveAngleVal');
+  var speedInput = document.getElementById('speed');
+  var speedVal = document.getElementById('speedVal');
+  var idleSwitch = document.getElementById('idle');
+  var idleSpeedInput = document.getElementById('idleSpeed');
+  var idleSpeedVal = document.getElementById('idleSpeedVal');
+  var idleAmpInput = document.getElementById('idleAmp');
+  var idleAmpVal = document.getElementById('idleAmpVal');
+  var runCycleSwitch = document.getElementById('runCycle');
+  var runSpeedInput = document.getElementById('runSpeed');
+  var runSpeedVal = document.getElementById('runSpeedVal');
+  var runAmpInput = document.getElementById('runAmp');
+  var runAmpVal = document.getElementById('runAmpVal');
+  var replayBtn = document.getElementById('replayBtn');
+  var dropzone = document.getElementById('dropzone');
+  var fileInput = document.getElementById('fileInput');
+  var inactiveColorInput = document.getElementById('inactiveColor');
+  var swatches = document.querySelectorAll('#swatches .swatch');
+  var svSquare = document.getElementById('svSquare');
+  var svThumb = document.getElementById('svThumb');
+  var hueStrip = document.getElementById('hueStrip');
+  var hueThumb = document.getElementById('hueThumb');
+  var hexInput = document.getElementById('hexInput');
+  var hexSwatch = document.getElementById('hexSwatch');
+  var exportPngBtn = document.getElementById('exportPngBtn');
+  var exportVideoBtn = document.getElementById('exportVideoBtn');
+  var recStatus = document.getElementById('recStatus');
+  var recStatusText = document.getElementById('recStatusText');
+  var videoPreview = document.getElementById('videoPreview');
+  var previewHint = document.getElementById('previewHint');
+  var backboneInfo = document.getElementById('backboneInfo');
+  var bgModeSelect = document.getElementById('bgMode');
+  var bgColorRow = document.getElementById('bgColorRow');
+  var bgColorInput = document.getElementById('bgColorInput');
+  var bgDropzone = document.getElementById('bgDropzone');
+  var bgFileInput = document.getElementById('bgFileInput');
+  var bgFilenameEl = document.getElementById('bgFilename');
+
+  var WORK_SIZE = 640;
+  // Addressable backbone: every logo — regardless of size or complexity — is
+  // sampled onto a square grid, so each dot has a stable (col,row) and
+  // normalized (xNorm,yNorm) position across uploads. That's the anchor an
+  // X/Y-axis animation spec can drive against later, instead of dot positions
+  // shifting around based on content — the "Dot Density" slider changes the
+  // grid's resolution (coarser/finer), but xNorm/yNorm stay 0–1 either way,
+  // so the addressing scheme itself never changes underneath you.
+  var GRID_COLS = parseFloat(gridResInput.value);
+  var GRID_ROWS = GRID_COLS;
+  var MAX_DOTS = 6000;
+  var MAX_BG_DOTS = 6000;
+
+  var state = {
+    offCanvas: null,
+    hasAlpha: false,
+    invert: false,
+    spacing: WORK_SIZE / GRID_COLS,
+    threshold: parseFloat(thresholdInput.value) / 100,
+    fillRatio: parseFloat(fillRatioInput.value),
+    glow: parseFloat(glowInput.value),
+    baseOpacity: parseFloat(baseOpacityInput.value),
+    color: '#E8471F',
+    inactiveColor: inactiveColorInput.value,
+    waveMode: waveModeSelect.value,
+    waveAngle: parseFloat(waveAngleInput.value),
+    speed: parseFloat(speedInput.value),
+    idle: true,
+    idleSpeed: parseFloat(idleSpeedInput.value),
+    idleAmp: parseFloat(idleAmpInput.value),
+    runCycle: false,
+    runSpeed: parseFloat(runSpeedInput.value),
+    runAmp: parseFloat(runAmpInput.value),
+    recording: false,
+    canvasBgMode: 'transparent',
+    canvasBgColor: bgColorInput.value,
+    canvasBgImage: null,
+    dots: [],
+    bgGrid: [],
+    gridSpacingPx: 8,
+    startTime: 0
+  };
+
+  function toggleSwitch(el, on){
+    el.classList.toggle('on', on);
+    el.setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+  function bindSwitch(el, onChange){
+    function fire(){
+      var on = !el.classList.contains('on');
+      toggleSwitch(el, on);
+      onChange(on);
+    }
+    el.addEventListener('click', fire);
+    el.addEventListener('keydown', function(e){
+      if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); fire(); }
+    });
+  }
+  bindSwitch(invertSwitch, function(on){ state.invert = on; computeMask(false); layoutAndAnimate(true); });
+  bindSwitch(idleSwitch, function(on){ state.idle = on; });
+  bindSwitch(runCycleSwitch, function(on){ state.runCycle = on; });
+
+  // ---------- default demo mark: a target / registration emblem ----------
+  function buildDemoOffscreen(){
+    var c = document.createElement('canvas');
+    c.width = WORK_SIZE; c.height = WORK_SIZE;
+    var octx = c.getContext('2d');
+    octx.clearRect(0,0,WORK_SIZE,WORK_SIZE);
+    var cx = WORK_SIZE/2, cy = WORK_SIZE/2;
+    octx.fillStyle = '#000';
+
+    octx.beginPath();
+    octx.arc(cx, cy, WORK_SIZE*0.36, 0, Math.PI*2);
+    octx.fill();
+
+    octx.globalCompositeOperation = 'destination-out';
+    octx.beginPath();
+    octx.arc(cx, cy, WORK_SIZE*0.255, 0, Math.PI*2);
+    octx.fill();
+    octx.globalCompositeOperation = 'source-over';
+
+    octx.beginPath();
+    octx.arc(cx, cy, WORK_SIZE*0.09, 0, Math.PI*2);
+    octx.fill();
+
+    var tickLen = WORK_SIZE*0.14, tickW = WORK_SIZE*0.03, gap = WORK_SIZE*0.40;
+    [[0,-1],[0,1],[-1,0],[1,0]].forEach(function(d){
+      octx.save();
+      octx.translate(cx + d[0]*gap, cy + d[1]*gap);
+      octx.fillRect(-tickW/2, -tickLen/2, tickW, tickLen);
+      octx.restore();
+    });
+
+    return c;
+  }
+
+  function buildOffscreenFromImage(img){
+    var c = document.createElement('canvas');
+    var scale = Math.min(WORK_SIZE / img.width, WORK_SIZE / img.height);
+    var w = Math.max(1, Math.round(img.width * scale));
+    var h = Math.max(1, Math.round(img.height * scale));
+    c.width = WORK_SIZE; c.height = WORK_SIZE;
+    var octx = c.getContext('2d');
+    octx.clearRect(0,0,WORK_SIZE,WORK_SIZE);
+    octx.drawImage(img, (WORK_SIZE-w)/2, (WORK_SIZE-h)/2, w, h);
+    return c;
+  }
+
+  function detectAlpha(imageData){
+    var d = imageData.data, count = 0, total = 0;
+    for(var i = 0; i < d.length; i += 4 * 37){
+      total++;
+      var a = d[i+3];
+      if(a > 8 && a < 247) count++;
+    }
+    return (total > 0 && (count / total) > 0.015) || hasFullyTransparentRegion(imageData);
+  }
+  function hasFullyTransparentRegion(imageData){
+    var d = imageData.data, transparent = 0, opaque = 0;
+    for(var i = 0; i < d.length; i += 4 * 23){
+      if(d[i+3] < 8) transparent++; else if(d[i+3] > 247) opaque++;
+    }
+    return transparent > 20 && opaque > 20;
+  }
+
+  // Otsu's method: automatically picks the brightness split point from the
+  // image's own histogram, instead of relying on one fixed threshold that
+  // only happens to work for some logos.
+  function computeOtsuThreshold(hist, total){
+    var sum = 0;
+    for(var t = 0; t < 256; t++) sum += t * hist[t];
+    var sumB = 0, wB = 0, wF = 0, varMax = -1, threshold = 127;
+    for(var t2 = 0; t2 < 256; t2++){
+      wB += hist[t2];
+      if(wB === 0) continue;
+      wF = total - wB;
+      if(wF === 0) break;
+      sumB += t2 * hist[t2];
+      var mB = sumB / wB;
+      var mF = (sum - sumB) / wF;
+      var varBetween = wB * wF * (mB - mF) * (mB - mF);
+      if(varBetween > varMax){ varMax = varBetween; threshold = t2; }
+    }
+    return threshold;
+  }
+
+  function autoCalibrateThreshold(id){
+    var d = id.data, hist = new Array(256).fill(0), total = 0;
+    for(var i = 0; i < d.length; i += 4){
+      if(d[i+3] < 20) continue;
+      var lum = Math.round(0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2]);
+      hist[lum]++; total++;
+    }
+    if(total < 50) return;
+    var t = computeOtsuThreshold(hist, total);
+    var darkCount = 0;
+    for(var v = 0; v <= t; v++) darkCount += hist[v];
+    var darkRatio = darkCount / total;
+
+    state.threshold = t / 255;
+    state.invert = darkRatio > 0.5;
+    thresholdInput.value = Math.round(state.threshold * 100);
+    thresholdVal.textContent = thresholdInput.value + '%';
+    toggleSwitch(invertSwitch, state.invert);
+  }
+
+  function computeMask(autoTune){
+    if(!state.offCanvas) return;
+    var octx = state.offCanvas.getContext('2d');
+    var id = octx.getImageData(0, 0, WORK_SIZE, WORK_SIZE);
+    state.hasAlpha = detectAlpha(id);
+    if(autoTune && !state.hasAlpha) autoCalibrateThreshold(id);
+
+    var spacing = state.spacing;
+    var d = id.data;
+    var w = WORK_SIZE, h = WORK_SIZE;
+    var pts = [];
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    // Walk the fixed 100x100 backbone grid (not pixel spacing derived from the
+    // image) so every upload is addressed by the same (col,row) coordinates.
+    // Each cell still samples a small box of sub-pixels (not just its center)
+    // so thin strokes, small text, and diagonal edges that would fall between
+    // single sample points still register in the mask.
+    var sub = 3;
+    for(var row = 0; row < GRID_ROWS; row++){
+      var y = (row + 0.5) * spacing;
+      if(y >= h) break;
+      for(var col = 0; col < GRID_COLS; col++){
+        var x = (col + 0.5) * spacing;
+        if(x >= w) break;
+        var sumA = 0, sumLumA = 0, n = 0;
+        for(var sy = 0; sy < sub; sy++){
+          for(var sx = 0; sx < sub; sx++){
+            var px = x - spacing/2 + (sx + 0.5) * (spacing / sub);
+            var py = y - spacing/2 + (sy + 0.5) * (spacing / sub);
+            var xi = Math.min(w-1, Math.max(0, Math.round(px)));
+            var yi = Math.min(h-1, Math.max(0, Math.round(py)));
+            var idx = (yi * w + xi) * 4;
+            var a = d[idx+3];
+            sumA += a;
+            sumLumA += ((0.299*d[idx] + 0.587*d[idx+1] + 0.114*d[idx+2]) / 255) * a;
+            n++;
+          }
+        }
+        var avgA = sumA / n;
+        var avgLum = sumA > 0 ? sumLumA / sumA : 1;
+
+        var filled;
+        if(state.hasAlpha){
+          filled = state.invert ? (avgA <= 128) : (avgA > 128);
+        } else {
+          var dark = avgA > 20 && avgLum < state.threshold;
+          filled = state.invert ? (avgA > 20 && !dark) : dark;
+        }
+        if(filled){
+          pts.push({
+            x: x, y: y, col: col, row: row,
+            xNorm: col / (GRID_COLS - 1), yNorm: row / (GRID_ROWS - 1)
+          });
+          if(x < minX) minX = x;
+          if(x > maxX) maxX = x;
+          if(y < minY) minY = y;
+          if(y > maxY) maxY = y;
+        }
+      }
+    }
+
+    if(pts.length > MAX_DOTS){
+      // random thinning instead of fixed-stride: striding through a raster-order
+      // list drops whole rows/columns unevenly and produces visible banding.
+      // This is only a safety ceiling for unusually dense (near-solid) shapes —
+      // the backbone grid itself stays fixed regardless.
+      var keepProb = MAX_DOTS / pts.length;
+      pts = pts.filter(function(){ return Math.random() < keepProb; });
+    }
+
+    state.maskPoints = pts;
+    state.bbox = pts.length ? {minX:minX,minY:minY,maxX:maxX,maxY:maxY} : {minX:0,minY:0,maxX:w,maxY:h};
+    dotCountEl.textContent = pts.length;
+  }
+
+  function easeOutBack(t){
+    var c1 = 1.4, c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t-1,3) + c1 * Math.pow(t-1,2);
+  }
+
+  function buildBackgroundGrid(W, H){
+    var spacingPx = Math.max(4, state.gridSpacingPx);
+    var grid = [];
+    for(var gy = spacingPx/2; gy < H; gy += spacingPx){
+      for(var gx = spacingPx/2; gx < W; gx += spacingPx){
+        grid.push({x: gx, y: gy});
+        if(grid.length >= MAX_BG_DOTS) return grid;
+      }
+    }
+    return grid;
+  }
+
+  function layoutAndAnimate(replay){
+    var rect = canvas.getBoundingClientRect();
+    var W = rect.width, H = rect.height;
+    if(W < 10 || H < 10) return;
+
+    state.gridSpacingPx = (Math.max(2, state.spacing) / WORK_SIZE) * W;
+    state.bgGrid = buildBackgroundGrid(W, H);
+
+    if(!state.maskPoints || !state.maskPoints.length){
+      placeholder.style.display = 'flex';
+      placeholder.textContent = 'no shape detected — try Invert mask or adjust Threshold';
+      state.dots = [];
+      return;
+    }
+    placeholder.style.display = 'none';
+
+    var bbox = state.bbox;
+    var bw = Math.max(1, bbox.maxX - bbox.minX);
+    var bh = Math.max(1, bbox.maxY - bbox.minY);
+    var pad = 0.12;
+    var scale = Math.min(W*(1-pad*2)/bw, H*(1-pad*2)/bh);
+    var offX = (W - bw*scale)/2 - bbox.minX*scale;
+    var offY = (H - bh*scale)/2 - bbox.minY*scale;
+
+    var cx = W/2, cy = H/2;
+    var maxDist = Math.sqrt(cx*cx + cy*cy);
+    var rad = state.waveAngle * Math.PI/180;
+    var dirx = Math.cos(rad), diry = Math.sin(rad);
+
+    var prevDots = state.dots;
+    var midX = (bbox.minX + bbox.maxX) / 2;
+    var raw = state.maskPoints.map(function(p, i){
+      var tx = p.x*scale + offX;
+      var ty = p.y*scale + offY;
+      var dist = Math.sqrt(Math.pow(tx-cx,2) + Math.pow(ty-cy,2));
+      var proj = (tx-cx)*dirx + (ty-cy)*diry;
+      // position within the silhouette's own bounds — used to weight the run-cycle
+      // motion so the bottom of the shape (legs) swings more than the top (head).
+      var yFrac = (p.y - bbox.minY) / bh;
+      var xFrac = (p.x - midX) / (bw/2);
+      return {
+        tx:tx, ty:ty, dist:dist, proj:proj, yFrac:yFrac, xFrac:xFrac, i:i,
+        col: p.col, row: p.row, xNorm: p.xNorm, yNorm: p.yNorm
+      };
+    });
+
+    var minP = Infinity, maxP = -Infinity;
+    if(state.waveMode === 'sweep'){
+      raw.forEach(function(o){ if(o.proj < minP) minP = o.proj; if(o.proj > maxP) maxP = o.proj; });
+    }
+
+    var newDots = raw.map(function(o){
+      var prev = (!replay && prevDots && prevDots[o.i]) ? prevDots[o.i] : null;
+      var sx, sy;
+      if(prev){
+        sx = prev.x; sy = prev.y;
+      } else {
+        var ang = Math.random()*Math.PI*2;
+        var rd = (0.55 + Math.random()*0.65) * maxDist;
+        sx = cx + Math.cos(ang)*rd;
+        sy = cy + Math.sin(ang)*rd;
+      }
+      var delay;
+      if(state.waveMode === 'sweep'){
+        var t = maxP > minP ? (o.proj - minP)/(maxP - minP) : 0;
+        delay = t*480 + Math.random()*160;
+      } else if(state.waveMode === 'random'){
+        delay = Math.random()*620;
+      } else {
+        delay = (o.dist/maxDist) * 380 + Math.random()*220;
+      }
+      return {
+        sx: sx, sy: sy, tx: o.tx, ty: o.ty,
+        x: sx, y: sy,
+        delay: delay,
+        dur: 620 + Math.random()*260,
+        phase: Math.random()*Math.PI*2,
+        yFrac: o.yFrac, xFrac: o.xFrac,
+        col: o.col, row: o.row, xNorm: o.xNorm, yNorm: o.yNorm
+      };
+    });
+
+    state.dots = newDots;
+    state.startTime = performance.now();
+    srcInfo.textContent = state.hasAlpha ? 'alpha mask' : ('luminance mask · auto t=' + Math.round(state.threshold*100) + '%');
+  }
+
+  function resizeCanvas(){
+    // Must measure the canvas element's own box, not the .stage wrapper's —
+    // .stage has a 1px border (box-sizing: border-box), so its rect is larger
+    // than the canvas's actual rendered box. Sizing the backing buffer off the
+    // wrong element left a sliver along the right/bottom edge that clearRect()
+    // (which correctly uses the canvas's own rect) never reached, so old dot
+    // pixels there never got cleared and visibly built up over time.
+    var rect = canvas.getBoundingClientRect();
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  // Buckets dots by rounded alpha so we can fill each bucket with ONE path/fill
+  // call instead of one per dot. This matters a lot here: shadowBlur (used for
+  // the glow) re-runs a blur pass on every single fill() call, so thousands of
+  // individual fills each frame is enough to visibly hang the tab. Collapsing
+  // ~12,500 fill calls/frame down to a couple dozen is the fix.
+  var ALPHA_BUCKETS = 16;
+  var bucketPaths = [];
+  for(var bkt = 0; bkt < ALPHA_BUCKETS; bkt++) bucketPaths.push(new Path2D());
+
+  function drawImageCover(image, W, H){
+    var ir = image.width / image.height, cr = W / H;
+    var sx, sy, sw, sh;
+    if(ir > cr){ sh = image.height; sw = sh * cr; sx = (image.width - sw) / 2; sy = 0; }
+    else { sw = image.width; sh = sw / cr; sx = 0; sy = (image.height - sh) / 2; }
+    ctx.drawImage(image, sx, sy, sw, sh, 0, 0, W, H);
+  }
+
+  function drawFrame(now){
+    var rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    if(state.canvasBgMode === 'color'){
+      ctx.fillStyle = state.canvasBgColor;
+      ctx.fillRect(0, 0, rect.width, rect.height);
+    } else if(state.canvasBgMode === 'image' && state.canvasBgImage){
+      drawImageCover(state.canvasBgImage, rect.width, rect.height);
+    }
+    // 'transparent' mode: nothing drawn — clearRect above already left it clear.
+
+    var activeR = Math.max(0.4, (state.gridSpacingPx/2) * state.fillRatio);
+
+    // inactive LED grid — the full panel, dimly lit — one path, one fill.
+    if(state.baseOpacity > 0 && state.bgGrid.length){
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = state.inactiveColor;
+      ctx.globalAlpha = state.baseOpacity;
+      var bgR = Math.max(0.3, activeR * 0.85);
+      var bgPath = new Path2D();
+      for(var b = 0; b < state.bgGrid.length; b++){
+        var g = state.bgGrid[b];
+        bgPath.moveTo(g.x + bgR, g.y);
+        bgPath.arc(g.x, g.y, bgR, 0, Math.PI*2);
+      }
+      ctx.fill(bgPath);
+    }
+
+    if(!state.dots.length){ ctx.globalAlpha = 1; ctx.shadowBlur = 0; return; }
+
+    var speedFactor = state.speed / 6;
+    var elapsedBase = now - state.startTime;
+
+    for(var bkt2 = 0; bkt2 < ALPHA_BUCKETS; bkt2++) bucketPaths[bkt2] = new Path2D();
+
+    for(var i = 0; i < state.dots.length; i++){
+      var dot = state.dots[i];
+      var elapsed = reduceMotion ? dot.delay + dot.dur : elapsedBase * speedFactor;
+      var t = (elapsed - dot.delay) / dot.dur;
+      if(t < 0) t = 0; if(t > 1) t = 1;
+      var e = easeOutBack(t);
+      var x = dot.sx + (dot.tx - dot.sx) * e;
+      var y = dot.sy + (dot.ty - dot.sy) * e;
+      var alpha = 0.12 + 0.88 * Math.min(1, t*1.6);
+      var r = activeR * (0.5 + 0.5 * Math.min(1, t*1.4));
+
+      if(t >= 1 && state.idle && !reduceMotion){
+        var freq = 0.0022 * state.idleSpeed / 0.6;
+        var amp = 0.5 * state.idleAmp;
+        var breathe = Math.sin(now*freq + dot.phase);
+        x += breathe * amp;
+        y += Math.cos(now*freq*0.86 + dot.phase) * amp;
+        alpha = 0.86 + breathe*0.14;
+        r = activeR * (1 + breathe*0.06);
+      }
+
+      if(t >= 1 && state.runCycle && !reduceMotion){
+        // "jogging in place": the whole mark bounces on every footfall, while the
+        // lower portion (legs) sways side to side out of phase left vs right —
+        // an illusion of running that only needs each dot's position in the
+        // silhouette, not real limb rigging.
+        var runFreq = 0.0055 * state.runSpeed;
+        var phase = now * runFreq;
+        var lower = Math.max(0, (dot.yFrac - 0.3) / 0.7);
+        var bob = Math.abs(Math.sin(phase)) * 3.2 * state.runAmp;
+        var sidePhase = phase * 2 + (dot.xFrac >= 0 ? 0 : Math.PI);
+        var sway = Math.sin(sidePhase) * lower * 5 * state.runAmp;
+        x += sway;
+        y -= bob * (0.35 + lower * 0.65);
+        r = activeR * (1 + lower * 0.08 * Math.sin(sidePhase));
+      }
+
+      r = Math.max(0.4, r);
+      var bi = Math.round(clamp01(alpha) * (ALPHA_BUCKETS - 1));
+      var path = bucketPaths[bi];
+      path.moveTo(x + r, y);
+      path.arc(x, y, r, 0, Math.PI*2);
+    }
+
+    ctx.fillStyle = state.color;
+    ctx.shadowColor = state.color;
+    ctx.shadowBlur = state.glow;
+    for(var bi2 = 0; bi2 < ALPHA_BUCKETS; bi2++){
+      ctx.globalAlpha = bi2 / (ALPHA_BUCKETS - 1);
+      ctx.fill(bucketPaths[bi2]);
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+  }
+
+  var rafId = null;
+  function loop(now){
+    drawFrame(now);
+    rafId = requestAnimationFrame(loop);
+  }
+  function startLoop(){
+    if(rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(loop);
+  }
+
+  // ---------- input wiring ----------
+  gridResInput.addEventListener('input', function(){
+    GRID_COLS = parseFloat(gridResInput.value);
+    GRID_ROWS = GRID_COLS;
+    state.spacing = WORK_SIZE / GRID_COLS;
+    gridResVal.textContent = GRID_COLS + '×' + GRID_ROWS;
+    backboneInfo.textContent = GRID_COLS + '×' + GRID_ROWS + ' backbone';
+    computeMask(false); layoutAndAnimate(true);
+  });
+  thresholdInput.addEventListener('input', function(){
+    state.threshold = parseFloat(thresholdInput.value)/100;
+    thresholdVal.textContent = thresholdInput.value + '%';
+    computeMask(false); layoutAndAnimate(true);
+  });
+  fillRatioInput.addEventListener('input', function(){
+    state.fillRatio = parseFloat(fillRatioInput.value);
+    fillRatioVal.textContent = state.fillRatio.toFixed(2);
+  });
+  glowInput.addEventListener('input', function(){
+    state.glow = parseFloat(glowInput.value);
+    glowVal.textContent = glowInput.value;
+  });
+  baseOpacityInput.addEventListener('input', function(){
+    state.baseOpacity = parseFloat(baseOpacityInput.value);
+    baseOpacityVal.textContent = state.baseOpacity.toFixed(2);
+  });
+  waveModeSelect.addEventListener('change', function(){
+    state.waveMode = waveModeSelect.value;
+    layoutAndAnimate(true);
+  });
+  waveAngleInput.addEventListener('input', function(){
+    state.waveAngle = parseFloat(waveAngleInput.value);
+    waveAngleVal.textContent = waveAngleInput.value + '°';
+    if(state.waveMode === 'sweep') layoutAndAnimate(true);
+  });
+  speedInput.addEventListener('input', function(){
+    state.speed = parseFloat(speedInput.value);
+    speedVal.textContent = speedInput.value;
+  });
+  idleSpeedInput.addEventListener('input', function(){
+    state.idleSpeed = parseFloat(idleSpeedInput.value);
+    idleSpeedVal.textContent = state.idleSpeed.toFixed(2);
+  });
+  idleAmpInput.addEventListener('input', function(){
+    state.idleAmp = parseFloat(idleAmpInput.value);
+    idleAmpVal.textContent = state.idleAmp.toFixed(2);
+  });
+  runSpeedInput.addEventListener('input', function(){
+    state.runSpeed = parseFloat(runSpeedInput.value);
+    runSpeedVal.textContent = state.runSpeed.toFixed(2);
+  });
+  runAmpInput.addEventListener('input', function(){
+    state.runAmp = parseFloat(runAmpInput.value);
+    runAmpVal.textContent = state.runAmp.toFixed(2);
+  });
+
+  function swatchColor(s){
+    if(s.dataset.color) return s.dataset.color;
+    // theme-relative swatches (e.g. "Ink") resolve against the live CSS variable
+    // so they always contrast with the stage instead of a color baked for one theme.
+    return getComputedStyle(document.documentElement).getPropertyValue(s.dataset.colorVar).trim();
+  }
+
+  // ---------- HSV color picker (saturation/value square + hue strip) ----------
+  var picker = {h: 16, s: 0.86, v: 0.91};
+  function clamp01(v){ return Math.max(0, Math.min(1, v)); }
+  function hsvToHex(h, s, v){
+    var c = v*s, x = c*(1 - Math.abs((h/60)%2 - 1)), m = v-c, r,g,b;
+    if(h < 60){ r=c; g=x; b=0; }
+    else if(h < 120){ r=x; g=c; b=0; }
+    else if(h < 180){ r=0; g=c; b=x; }
+    else if(h < 240){ r=0; g=x; b=c; }
+    else if(h < 300){ r=x; g=0; b=c; }
+    else { r=c; g=0; b=x; }
+    function to255(n){ return Math.round((n+m)*255); }
+    function h2(n){ return to255(n).toString(16).padStart(2,'0'); }
+    return '#' + h2(r) + h2(g) + h2(b);
+  }
+  function hexToHsv(hex){
+    var r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
+    var max = Math.max(r,g,b), min = Math.min(r,g,b), d = max-min, h = 0;
+    if(d !== 0){
+      if(max === r) h = 60 * (((g-b)/d) % 6);
+      else if(max === g) h = 60 * ((b-r)/d + 2);
+      else h = 60 * ((r-g)/d + 4);
+    }
+    if(h < 0) h += 360;
+    return {h: h, s: max === 0 ? 0 : d/max, v: max};
+  }
+  function refreshPickerUI(){
+    var hex = hsvToHex(picker.h, picker.s, picker.v);
+    state.color = hex;
+    hexInput.value = hex.toUpperCase();
+    hexSwatch.style.background = hex;
+    svSquare.style.setProperty('--h', picker.h);
+    svThumb.style.left = (picker.s*100) + '%';
+    svThumb.style.top = ((1-picker.v)*100) + '%';
+    hueThumb.style.left = (picker.h/360*100) + '%';
+    swatches.forEach(function(s){ s.classList.toggle('active', swatchColor(s).toLowerCase() === hex.toLowerCase()); });
+  }
+  function setActiveColorHex(hex){
+    if(!/^#[0-9a-f]{6}$/i.test(hex)) return;
+    var hsv = hexToHsv(hex);
+    picker.h = hsv.h; picker.s = hsv.s; picker.v = hsv.v;
+    refreshPickerUI();
+  }
+  function dragTrack(el, onMove){
+    el.addEventListener('pointerdown', function(e){
+      el.setPointerCapture(e.pointerId);
+      onMove(e);
+      function move(ev){ onMove(ev); }
+      function up(){ el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); }
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', up);
+    });
+  }
+  dragTrack(svSquare, function(e){
+    var rect = svSquare.getBoundingClientRect();
+    picker.s = clamp01((e.clientX - rect.left) / rect.width);
+    picker.v = 1 - clamp01((e.clientY - rect.top) / rect.height);
+    refreshPickerUI();
+  });
+  dragTrack(hueStrip, function(e){
+    var rect = hueStrip.getBoundingClientRect();
+    picker.h = clamp01((e.clientX - rect.left) / rect.width) * 360;
+    refreshPickerUI();
+  });
+  hexInput.addEventListener('change', function(){
+    var v = hexInput.value.trim();
+    if(v[0] !== '#') v = '#' + v;
+    if(/^#[0-9a-f]{6}$/i.test(v)) setActiveColorHex(v);
+    else hexInput.value = state.color.toUpperCase();
+  });
+  swatches.forEach(function(s){
+    s.addEventListener('click', function(){ setActiveColorHex(swatchColor(s)); });
+  });
+  inactiveColorInput.addEventListener('input', function(){ state.inactiveColor = inactiveColorInput.value; });
+  setActiveColorHex('#E8471F');
+
+  // ---------- canvas background: transparent / solid color / image ----------
+  function updateBgModeUI(){
+    bgColorRow.style.display = state.canvasBgMode === 'color' ? 'flex' : 'none';
+    bgDropzone.style.display = state.canvasBgMode === 'image' ? 'block' : 'none';
+  }
+  bgModeSelect.addEventListener('change', function(){
+    state.canvasBgMode = bgModeSelect.value;
+    updateBgModeUI();
+  });
+  bgColorInput.addEventListener('input', function(){ state.canvasBgColor = bgColorInput.value; });
+
+  function handleBgFile(file){
+    if(!file || file.type.indexOf('image') !== 0) return;
+    bgFilenameEl.textContent = file.name;
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){ state.canvasBgImage = img; };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+  bgDropzone.addEventListener('click', function(){ bgFileInput.click(); });
+  bgDropzone.addEventListener('keydown', function(e){
+    if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); bgFileInput.click(); }
+  });
+  bgFileInput.addEventListener('change', function(){
+    if(bgFileInput.files && bgFileInput.files[0]) handleBgFile(bgFileInput.files[0]);
+  });
+  ['dragenter','dragover'].forEach(function(evt){
+    bgDropzone.addEventListener(evt, function(e){ e.preventDefault(); bgDropzone.classList.add('drag'); });
+  });
+  ['dragleave','drop'].forEach(function(evt){
+    bgDropzone.addEventListener(evt, function(e){ e.preventDefault(); bgDropzone.classList.remove('drag'); });
+  });
+  bgDropzone.addEventListener('drop', function(e){
+    var file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if(file) handleBgFile(file);
+  });
+
+  // ---------- export: PNG snapshot + WebM recording ----------
+  // Standard browser download — this page is a normal top-level site (not a
+  // sandboxed iframe), so <a download> works exactly as expected.
+  function downloadBlob(blob, filename){
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 10000);
+  }
+  exportPngBtn.addEventListener('click', function(){
+    canvas.toBlob(function(blob){
+      if(!blob) return;
+      downloadBlob(blob, 'dot-matrix.png');
+      recStatusText.textContent = 'downloaded dot-matrix.png';
+    }, 'image/png');
+  });
+  var canRecord = !!(canvas.captureStream && window.MediaRecorder);
+  if(!canRecord){
+    exportVideoBtn.disabled = true;
+    recStatusText.textContent = 'video export not supported in this browser';
+  }
+  // How long the reveal actually takes to finish, in real wall-clock ms, at the
+  // current Wave Speed — computed from the just-generated dots so the recording
+  // always captures the complete scatter → assemble wave effect instead of a
+  // fixed window that could cut it off (too slow) or mostly record idle hold
+  // (too fast).
+  function estimateRevealMs(){
+    var speedFactor = state.speed / 6;
+    var maxFinish = 0;
+    for(var i = 0; i < state.dots.length; i++){
+      var d = state.dots[i];
+      if(d.delay + d.dur > maxFinish) maxFinish = d.delay + d.dur;
+    }
+    return maxFinish / speedFactor;
+  }
+  // MediaRecorder-produced WebM has no duration written in its header (it
+  // doesn't know the final length while it's still recording), so a player can
+  // show "0:00" and refuse to scrub even though the video itself is fine.
+  // Seeking to a huge timestamp forces the browser to scan the file and compute
+  // the real duration. This only affects our in-page preview element — it
+  // doesn't touch the downloaded file's bytes.
+  var previewUrl = null;
+  function showVideoPreview(blob){
+    if(previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = URL.createObjectURL(blob);
+    videoPreview.src = previewUrl;
+    videoPreview.style.display = 'block';
+    previewHint.style.display = 'block';
+    videoPreview.addEventListener('loadedmetadata', function fixDur(){
+      videoPreview.removeEventListener('loadedmetadata', fixDur);
+      if(videoPreview.duration === Infinity || isNaN(videoPreview.duration)){
+        videoPreview.currentTime = 1e101;
+        videoPreview.addEventListener('timeupdate', function reset(){
+          videoPreview.removeEventListener('timeupdate', reset);
+          videoPreview.currentTime = 0;
+        }, {once: true});
+      }
+    }, {once: true});
+  }
+
+  exportVideoBtn.addEventListener('click', function(){
+    if(state.recording || !canRecord) return;
+    var stream = canvas.captureStream(30);
+    var mime = 'video/webm;codecs=vp9';
+    if(!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm';
+    var recorder;
+    try{ recorder = new MediaRecorder(stream, {mimeType: mime}); }
+    catch(e){ recorder = new MediaRecorder(stream); }
+    var chunks = [];
+    recorder.ondataavailable = function(e){ if(e.data && e.data.size) chunks.push(e.data); };
+    recorder.onstop = function(){
+      state.recording = false;
+      exportVideoBtn.disabled = false;
+      recStatus.classList.remove('active');
+      if(!chunks.length){ recStatusText.textContent = 'recording failed — try again'; return; }
+      var blob = new Blob(chunks, {type: 'video/webm'});
+      showVideoPreview(blob);
+      downloadBlob(blob, 'dot-matrix.webm');
+      recStatusText.textContent = 'downloaded dot-matrix.webm — previewed below too';
+    };
+    layoutAndAnimate(true);
+    var holdMs = 1500;
+    var recordMs = Math.max(2500, Math.min(15000, estimateRevealMs() + holdMs));
+    state.recording = true;
+    exportVideoBtn.disabled = true;
+    recStatus.classList.add('active');
+    recStatusText.textContent = 'recording ' + (recordMs/1000).toFixed(1) + 's…';
+    recorder.start();
+    setTimeout(function(){ if(recorder.state !== 'inactive') recorder.stop(); }, recordMs);
+  });
+
+  replayBtn.addEventListener('click', function(){ layoutAndAnimate(true); });
+
+  // ---------- file handling ----------
+  function handleFile(file){
+    if(!file || file.type.indexOf('image') !== 0) return;
+    filenameEl.textContent = file.name;
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        state.offCanvas = buildOffscreenFromImage(img);
+        computeMask(true);
+        layoutAndAnimate(true);
+      };
+      img.onerror = function(){
+        srcInfo.textContent = 'could not read that file';
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  dropzone.addEventListener('click', function(){ fileInput.click(); });
+  dropzone.addEventListener('keydown', function(e){
+    if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); fileInput.click(); }
+  });
+  fileInput.addEventListener('change', function(){
+    if(fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+  ['dragenter','dragover'].forEach(function(evt){
+    dropzone.addEventListener(evt, function(e){ e.preventDefault(); dropzone.classList.add('drag'); });
+  });
+  ['dragleave','drop'].forEach(function(evt){
+    dropzone.addEventListener(evt, function(e){ e.preventDefault(); dropzone.classList.remove('drag'); });
+  });
+  dropzone.addEventListener('drop', function(e){
+    var file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if(file) handleFile(file);
+  });
+
+  // ---------- boot ----------
+  var resizeTimer = null;
+  window.addEventListener('resize', function(){
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function(){
+      resizeCanvas();
+      layoutAndAnimate(false);
+    }, 120);
+  });
+
+  function boot(){
+    backboneInfo.textContent = GRID_COLS + '×' + GRID_ROWS + ' backbone';
+    resizeCanvas();
+    state.offCanvas = buildDemoOffscreen();
+    computeMask(true);
+    layoutAndAnimate(true);
+    startLoop();
+  }
+
+  if(document.readyState === 'complete' || document.readyState === 'interactive'){
+    setTimeout(boot, 0);
+  } else {
+    document.addEventListener('DOMContentLoaded', boot);
+  }
+})();
+</script>
+</body>
+</html>
